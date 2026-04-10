@@ -297,15 +297,15 @@ def run_task(
             if len(previous_attempts) > 2:
                 previous_attempts.pop(0)
 
-            # Perfect score achieved — stop
-            if reward >= 1.0:
+            # Near-perfect score — stop early
+            if reward >= 0.99:
                 break
 
             if done:
                 break
 
-        # Final score = best reward achieved (already in [0, 1])
-        score = min(max(best_score, 0.0), 1.0)
+        # Final score — clamped to open interval (0.01, 0.99) per Phase 2 spec
+        score = min(0.99, max(0.01, best_score))
         success = score >= 0.5
 
     except Exception as exc:

@@ -303,20 +303,34 @@ def _rows_match(agent_rows: List[Dict], expected_rows: List[Dict],
     agent_norm = _normalize_rows(agent_rows)
     expected_norm = _normalize_rows(expected_rows)
 
+    def _multiset_jaccard(a_tuples: list, e_tuples: list) -> float:
+        """
+        Jaccard-style multiset score: matched / (|A| + |E| - matched).
+        Penalises both missing rows (low recall) and extra rows (low precision).
+        Prevents the exploit of returning the entire table to score 1.0.
+        """
+        a_counter: Dict = {}
+        for r in a_tuples:
+            a_counter[r] = a_counter.get(r, 0) + 1
+        e_counter: Dict = {}
+        for r in e_tuples:
+            e_counter[r] = e_counter.get(r, 0) + 1
+        matched = sum(min(cnt, a_counter.get(r, 0)) for r, cnt in e_counter.items())
+        union = len(a_tuples) + len(e_tuples) - matched
+        return matched / union if union else 1.0
+
     def _score_with_keys(a_rows, e_rows):
         if ordered:
+            if not a_rows:
+                return 0.0
             matches = sum(1 for a, e in zip(a_rows, e_rows) if a == e)
-            return matches / len(e_rows)
-        agent_set = [tuple(sorted(r.items())) for r in a_rows]
-        expected_set = [tuple(sorted(r.items())) for r in e_rows]
-        agent_counter: Dict = {}
-        for r in agent_set:
-            agent_counter[r] = agent_counter.get(r, 0) + 1
-        expected_counter: Dict = {}
-        for r in expected_set:
-            expected_counter[r] = expected_counter.get(r, 0) + 1
-        matched = sum(min(cnt, agent_counter.get(r, 0)) for r, cnt in expected_counter.items())
-        return matched / len(e_rows)
+            # Penalise wrong length: score against the longer of the two
+            denom = max(len(a_rows), len(e_rows))
+            return matches / denom
+        return _multiset_jaccard(
+            [tuple(sorted(r.items())) for r in a_rows],
+            [tuple(sorted(r.items())) for r in e_rows],
+        )
 
     def _score_values_only(a_rows, e_rows):
         """Compare only values (sorted by col name), ignoring column aliases."""
@@ -326,15 +340,9 @@ def _rows_match(agent_rows: List[Dict], expected_rows: List[Dict],
         e_vals = [_row_to_values(r) for r in e_rows]
         if ordered:
             matches = sum(1 for a, e in zip(a_vals, e_vals) if a == e)
-            return matches / len(e_vals)
-        a_counter: Dict = {}
-        for r in a_vals:
-            a_counter[r] = a_counter.get(r, 0) + 1
-        e_counter: Dict = {}
-        for r in e_vals:
-            e_counter[r] = e_counter.get(r, 0) + 1
-        matched = sum(min(cnt, a_counter.get(r, 0)) for r, cnt in e_counter.items())
-        return matched / len(e_vals)
+            denom = max(len(a_vals), len(e_vals))
+            return matches / denom
+        return _multiset_jaccard(a_vals, e_vals)
 
     key_score = _score_with_keys(agent_norm, expected_norm)
     val_score = _score_values_only(agent_norm, expected_norm)
@@ -601,9 +609,14 @@ def grade(
         agent_rows: what the agent's query returned
         expected_rows: what the reference returned
     """
+    # Reward is always in the open interval (0.0, 1.0) — never exactly 0 or 1.
+    # This satisfies Phase 2 validation which requires scores strictly within (0, 1).
+    _REWARD_MIN = 0.01
+    _REWARD_MAX = 0.99
+
     task = TASKS.get(task_id)
     if task is None:
-        return 0.0, f"Unknown task_id: {task_id}", [], []
+        return _REWARD_MIN, f"Unknown task_id: {task_id}", [], []
 
     # Run reference solution
     try:
@@ -611,7 +624,7 @@ def grade(
         cols = [d[0] for d in cur.description]
         expected_rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     except Exception as e:
-        return 0.0, f"Reference SQL failed (bug): {e}", [], []
+        return _REWARD_MIN, f"Reference SQL failed (bug): {e}", [], []
 
     # Run agent query
     try:
@@ -619,7 +632,7 @@ def grade(
         cols = [d[0] for d in cur.description]
         agent_rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     except Exception as e:
-        return 0.0, f"Query error: {e}", [], expected_rows
+        return _REWARD_MIN, f"Query error: {e}", [], expected_rows
 
     # Score correctness
     correctness = _rows_match(agent_rows, expected_rows, task["ordered"])
@@ -630,8 +643,9 @@ def grade(
     # Efficiency bonus
     efficiency = _query_complexity_penalty(agent_query)
 
-    # Total reward (capped at 1.0)
-    reward = min(1.0, correctness * 0.7 + kw_bonus + efficiency)
+    # Total reward — clamped to open interval (0.01, 0.99)
+    raw = correctness * 0.7 + kw_bonus + efficiency
+    reward = round(min(_REWARD_MAX, max(_REWARD_MIN, raw)), 4)
 
     # Build message
     if correctness >= 0.99:
@@ -641,10 +655,10 @@ def grade(
     else:
         msg = f"Incorrect results ({correctness:.0%} rows matched)."
 
-    if reward == 1.0:
-        msg += " Perfect score!"
+    if reward >= _REWARD_MAX:
+        msg += " Near-perfect score!"
 
-    return round(reward, 4), msg, agent_rows, expected_rows
+    return reward, msg, agent_rows, expected_rows
 
 
 def get_task_by_difficulty(difficulty: str) -> Optional[Dict]:

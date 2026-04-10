@@ -183,12 +183,12 @@ class TestGraderIncorrectQueries:
 
     def test_syntax_error(self, db):
         reward, msg, _, _ = grade("easy_1", "SELEKT * FRUM customers", db)
-        assert reward == 0.0
+        assert reward <= 0.01  # minimum reward — never exactly 0.0
         assert "error" in msg.lower() or "query error" in msg.lower()
 
     def test_empty_query(self, db):
         reward, msg, _, _ = grade("easy_2", "", db)
-        assert reward == 0.0
+        assert reward <= 0.01  # minimum reward — never exactly 0.0
 
     def test_wrong_filter(self, db):
         # Should be USA, returns UK instead - partial credit at most
@@ -202,11 +202,11 @@ class TestGraderIncorrectQueries:
     def test_reward_range(self, db):
         for task_id, task in TASKS.items():
             reward, _, _, _ = grade(task_id, task["reference_sql"], db)
-            assert 0.0 <= reward <= 1.0, f"Reward out of range for {task_id}: {reward}"
+            assert 0.0 < reward < 1.0, f"Reward out of open interval (0,1) for {task_id}: {reward}"
 
     def test_unknown_task_returns_zero(self, db):
         reward, msg, _, _ = grade("nonexistent_task", "SELECT 1", db)
-        assert reward == 0.0
+        assert reward <= 0.01  # minimum reward — never exactly 0.0
         assert "unknown" in msg.lower()
 
 
@@ -253,7 +253,7 @@ class TestEnvironmentLifecycle:
         assert isinstance(obs, SQLObservation)
         assert obs.task_description != ""
         assert obs.schema_info != ""
-        assert obs.reward == 0.0
+        assert obs.reward == 0.0  # reset always gives reward=0.0 (not graded)
         assert obs.done is False
 
     def test_reset_difficulty_easy(self, env):
@@ -303,7 +303,7 @@ class TestEnvironmentLifecycle:
     def test_step_with_error_query(self, env):
         env.reset(difficulty="easy")
         obs = env.step(SQLAction(query="INVALID SQL !!!", difficulty="easy"))
-        assert obs.reward == 0.0
+        assert obs.reward <= 0.01  # minimum reward for errors
 
     def test_done_after_max_steps(self, env):
         env.reset(difficulty="easy")
@@ -468,7 +468,7 @@ class TestFastAPIEndpoints:
         data = resp.json()
         assert "task_description" in data
         assert "schema_info" in data
-        assert data["reward"] == 0.0
+        assert data["reward"] == 0.0  # reset gives reward=0.0 (not graded)
 
     def test_step_returns_reward(self, test_client):
         test_client.post("/reset", json={"difficulty": "easy"})
@@ -497,7 +497,7 @@ class TestFastAPIEndpoints:
         })
         assert resp.status_code == 200
         data = resp.json()
-        assert data["reward"] == 0.0
+        assert data["reward"] <= 0.01  # minimum reward for bad SQL
 
     def test_tasks_endpoint(self, test_client):
         resp = test_client.get("/tasks")
