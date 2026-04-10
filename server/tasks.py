@@ -274,12 +274,22 @@ def _normalize_rows(rows: List[Dict]) -> List[Dict]:
     return normalized
 
 
+def _row_to_values(row: Dict) -> tuple:
+    """Extract values in column-name order (for alias-agnostic comparison)."""
+    return tuple(row[k] for k in sorted(row.keys()))
+
+
 def _rows_match(agent_rows: List[Dict], expected_rows: List[Dict],
                 ordered: bool = False) -> float:
     """
     Return correctness score 0.0-1.0 comparing agent vs expected results.
     Uses set comparison for unordered, sequence comparison for ordered.
     Partial credit: ratio of matched rows.
+
+    Column alias normalization: if the agent uses different column names but
+    returns the same values (e.g. 'total' instead of 'total_spent'), the score
+    is taken as the max of key-match and value-only-match so cosmetic aliases
+    are not penalised.
     """
     if not expected_rows:
         return 1.0 if not agent_rows else 0.0
@@ -287,27 +297,42 @@ def _rows_match(agent_rows: List[Dict], expected_rows: List[Dict],
     agent_norm = _normalize_rows(agent_rows)
     expected_norm = _normalize_rows(expected_rows)
 
-    if ordered:
-        matches = sum(1 for a, e in zip(agent_norm, expected_norm) if a == e)
-        return matches / len(expected_norm)
+    def _score_with_keys(a_rows, e_rows):
+        if ordered:
+            matches = sum(1 for a, e in zip(a_rows, e_rows) if a == e)
+            return matches / len(e_rows)
+        agent_set = [tuple(sorted(r.items())) for r in a_rows]
+        expected_set = [tuple(sorted(r.items())) for r in e_rows]
+        agent_counter: Dict = {}
+        for r in agent_set:
+            agent_counter[r] = agent_counter.get(r, 0) + 1
+        expected_counter: Dict = {}
+        for r in expected_set:
+            expected_counter[r] = expected_counter.get(r, 0) + 1
+        matched = sum(min(cnt, agent_counter.get(r, 0)) for r, cnt in expected_counter.items())
+        return matched / len(e_rows)
 
-    # Unordered: match as multisets
-    agent_set = [tuple(sorted(r.items())) for r in agent_norm]
-    expected_set = [tuple(sorted(r.items())) for r in expected_norm]
+    def _score_values_only(a_rows, e_rows):
+        """Compare only values (sorted by col name), ignoring column aliases."""
+        if not a_rows or len(a_rows[0]) != len(e_rows[0]):
+            return 0.0
+        a_vals = [_row_to_values(r) for r in a_rows]
+        e_vals = [_row_to_values(r) for r in e_rows]
+        if ordered:
+            matches = sum(1 for a, e in zip(a_vals, e_vals) if a == e)
+            return matches / len(e_vals)
+        a_counter: Dict = {}
+        for r in a_vals:
+            a_counter[r] = a_counter.get(r, 0) + 1
+        e_counter: Dict = {}
+        for r in e_vals:
+            e_counter[r] = e_counter.get(r, 0) + 1
+        matched = sum(min(cnt, a_counter.get(r, 0)) for r, cnt in e_counter.items())
+        return matched / len(e_vals)
 
-    agent_counter: Dict = {}
-    for r in agent_set:
-        agent_counter[r] = agent_counter.get(r, 0) + 1
-
-    expected_counter: Dict = {}
-    for r in expected_set:
-        expected_counter[r] = expected_counter.get(r, 0) + 1
-
-    matched = 0
-    for r, cnt in expected_counter.items():
-        matched += min(cnt, agent_counter.get(r, 0))
-
-    return matched / len(expected_norm)
+    key_score = _score_with_keys(agent_norm, expected_norm)
+    val_score = _score_values_only(agent_norm, expected_norm)
+    return max(key_score, val_score)
 
 
 def _query_complexity_penalty(query: str) -> float:
@@ -358,6 +383,7 @@ _register(
     task_id="easy_1",
     difficulty="easy",
     description=(
+        "The marketing team is launching a US-only promotional email campaign. "
         "Retrieve the names and emails of all customers from the USA. "
         "Return columns: name, email."
     ),
@@ -370,7 +396,8 @@ _register(
     task_id="easy_2",
     difficulty="easy",
     description=(
-        "Count the total number of completed orders. "
+        "The finance team needs a daily fulfilment report. "
+        "Count the total number of orders with status 'completed'. "
         "Return a single column named: total_completed."
     ),
     reference_sql=(
@@ -384,6 +411,7 @@ _register(
     task_id="easy_3",
     difficulty="easy",
     description=(
+        "The merchandising team is building a premium product catalogue. "
         "List the top 5 most expensive products by price, highest first. "
         "Return columns: name, category, price."
     ),
@@ -402,9 +430,9 @@ _register(
     task_id="medium_1",
     difficulty="medium",
     description=(
-        "For each customer, calculate their total spending across all "
-        "completed orders. Include only customers who have placed at least "
-        "one completed order. "
+        "The loyalty team wants to identify top spenders for a VIP rewards programme. "
+        "For each customer, calculate their total spending across all completed orders. "
+        "Include only customers who have placed at least one completed order. "
         "Return columns: name, total_spent. Order by total_spent descending."
     ),
     reference_sql="""
@@ -424,6 +452,7 @@ _register(
     task_id="medium_2",
     difficulty="medium",
     description=(
+        "The inventory team needs to identify dead-stock items for a clearance sale. "
         "Find all products that have NEVER appeared in any order. "
         "Return columns: name, category, price."
     ),
@@ -441,6 +470,7 @@ _register(
     task_id="medium_3",
     difficulty="medium",
     description=(
+        "The finance team is building a monthly revenue trend report for 2023. "
         "Calculate the average order value for each month in 2023. "
         "Format the month as 'YYYY-MM'. "
         "Return columns: month, avg_order_value. Order by month ascending."
@@ -464,9 +494,10 @@ _register(
     task_id="hard_1",
     difficulty="hard",
     description=(
-        "Find all customers whose total completed spending is above the "
-        "average total spending across all customers (who have at least one "
-        "completed order). "
+        "The CRM team wants to segment high-value customers for a premium tier. "
+        "Find all customers whose total completed spending is above the average "
+        "total spending across all customers who have made at least one completed order. "
+        "Use a CTE for clarity. "
         "Return columns: name, total_spent. Order by total_spent descending."
     ),
     reference_sql="""
@@ -491,9 +522,9 @@ _register(
     task_id="hard_2",
     difficulty="hard",
     description=(
-        "For each product category, find the best-selling product "
-        "(by total quantity sold across all orders). "
-        "If two products tie, return both. "
+        "The category management team needs a 'category hero' SKU report for the homepage. "
+        "For each product category, find the best-selling product by total quantity sold. "
+        "If two products tie, return both (use RANK, not ROW_NUMBER). "
         "Return columns: category, product_name, total_quantity."
     ),
     reference_sql="""
@@ -523,8 +554,9 @@ _register(
     task_id="hard_3",
     difficulty="hard",
     description=(
-        "Find customers who have placed orders in ALL THREE years: 2022, 2023, "
-        "and 2024. "
+        "The retention team wants to reward customers who have been active every "
+        "year since the platform launched. Find customers who placed at least one "
+        "order in each of the years 2022, 2023, AND 2024 (all three). "
         "Return columns: name, email. Order by name ascending."
     ),
     reference_sql="""

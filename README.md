@@ -10,114 +10,135 @@ tags:
   - reinforcement-learning
   - sql
   - agent
+  - text-to-sql
 license: mit
 ---
 
 # SQL Query Learning Environment
 
-An OpenEnv-compatible reinforcement learning environment where AI agents learn to write correct and efficient SQL queries against a realistic e-commerce database.
+An OpenEnv-compatible reinforcement learning environment for training and evaluating AI agents on real-world SQL query generation tasks of increasing complexity.
 
-## Motivation
+## Why This Environment Matters
 
-SQL querying is a fundamental real-world skill used by millions of analysts, engineers, and data scientists daily. This environment provides a structured, graded setting for training and evaluating LLM-based agents on SQL generation tasks of increasing complexity.
+**Text-to-SQL is one of the most commercially valuable agent capabilities** — yet current LLMs still fail on complex queries involving CTEs, window functions, and multi-table joins. Existing benchmarks (Spider, BIRD) are static evaluation sets. There is no standard RL environment for *training* agents to improve iteratively on SQL tasks through trial-and-error feedback.
+
+This environment fills that gap:
+
+- **Iterative learning**: agents receive reward signals at every step, not just at episode end
+- **Partial credit**: a query returning 3 of 5 correct rows scores higher than one returning 0 — meaningful gradient signal for RL training
+- **Difficulty curriculum**: 3 tiers (easy → medium → hard) enable curriculum learning strategies
+- **Business-realistic tasks**: queries are framed as actual analyst/engineer requests, not academic puzzles
+- **Zero external dependencies**: pure SQLite, runs on any 2 vCPU / 8 GB machine
 
 ## Environment Overview
 
-The environment hosts an in-memory SQLite database seeded with a realistic e-commerce schema:
-- **customers** (20 rows) -- name, email, city, country
-- **products** (20 rows) -- name, category, price, stock
-- **orders** (30 rows) -- customer_id, date, total_amount, status
-- **order_items** (50 rows) -- order_id, product_id, quantity, price
+The environment hosts an in-memory SQLite e-commerce database with 4 tables and deterministic seed data:
 
-The agent receives the schema description and a task, then submits SQL queries. The environment grades each query against the reference solution and returns a reward in [0.0, 1.0].
+| Table | Rows | Key Columns |
+|---|---|---|
+| `customers` | 20 | id, name, email, city, country, created_at |
+| `products` | 20 | id, name, category, price, stock |
+| `orders` | 30 | id, customer_id, order_date, total_amount, status |
+| `order_items` | 50 | id, order_id, product_id, quantity, unit_price |
+
+At each step, the agent submits a SQL query. The grader executes it against the database, compares results to the reference solution, and returns a reward in `[0.0, 1.0]` with detailed feedback.
 
 ## Action Space
 
 | Field | Type | Description |
 |---|---|---|
 | `query` | `str` | The SQL query string to execute |
-| `task_id` | `str \| None` | Optional task ID (defaults to current) |
+| `task_id` | `str \| None` | Target a specific task (defaults to current) |
 | `difficulty` | `str` | `"easy"`, `"medium"`, or `"hard"` |
 
 ## Observation Space
 
 | Field | Type | Description |
 |---|---|---|
-| `result` | `list[dict]` | Query result rows |
-| `error` | `str` | Error message (empty if none) |
-| `reward` | `float` | Step reward in [0.0, 1.0] |
-| `done` | `bool` | Whether the episode is finished |
-| `message` | `str` | Human-readable grader feedback |
-| `schema_info` | `str` | Database schema description |
-| `task_description` | `str` | Natural-language task objective |
-| `expected_columns` | `list[str]` | Expected output column names |
-| `step_count` | `int` | Steps taken so far |
-| `score_breakdown` | `dict` | Sub-scores (correctness, efficiency) |
+| `result` | `list[dict]` | Rows returned by the agent's query |
+| `error` | `str` | SQL error message (empty if none) |
+| `reward` | `float` | Step reward in `[0.0, 1.0]` |
+| `done` | `bool` | Whether the episode has ended |
+| `message` | `str` | Grader feedback (e.g. "3/5 rows matched") |
+| `schema_info` | `str` | Full database schema for the agent |
+| `task_description` | `str` | Business-context task description |
+| `expected_columns` | `list[str]` | Column names the answer must contain |
+| `step_count` | `int` | Steps taken this episode |
+| `score_breakdown` | `dict` | Sub-scores: correctness, keyword_bonus, efficiency |
 
-## Tasks (9 total, 3 difficulty tiers)
+## Tasks (9 total across 3 tiers)
 
-### Easy (SELECT, WHERE, ORDER BY)
+### Easy — Basic filtering and aggregation
 
-| ID | Task | SQL Concepts |
+| ID | Business Scenario | SQL Concepts |
 |---|---|---|
-| `easy_1` | Retrieve customers from the USA | WHERE filter |
-| `easy_2` | Count completed orders | COUNT + WHERE |
-| `easy_3` | Top 5 most expensive products | ORDER BY + LIMIT |
+| `easy_1` | Marketing needs a US customer email list | `WHERE` country filter |
+| `easy_2` | Finance wants a fulfillment count | `COUNT` + `WHERE` status |
+| `easy_3` | Merchandising wants premium products for a catalogue | `ORDER BY` + `LIMIT` |
 
-### Medium (JOIN, GROUP BY, aggregation)
+### Medium — Joins, grouping, and date logic
 
-| ID | Task | SQL Concepts |
+| ID | Business Scenario | SQL Concepts |
 |---|---|---|
-| `medium_1` | Total spending per customer | JOIN + GROUP BY + SUM |
-| `medium_2` | Products never ordered | LEFT JOIN + NULL check |
-| `medium_3` | Average order value per month | STRFTIME + AVG + GROUP BY |
+| `medium_1` | Identify top spenders for a loyalty program | `JOIN` + `GROUP BY` + `SUM` |
+| `medium_2` | Find dead-stock products for clearance | `LEFT JOIN` + `NULL` check |
+| `medium_3` | Build a monthly revenue trend report for 2023 | `STRFTIME` + `AVG` + `GROUP BY` |
 
-### Hard (subqueries, CTEs, window functions)
+### Hard — CTEs, window functions, correlated subqueries
 
-| ID | Task | SQL Concepts |
+| ID | Business Scenario | SQL Concepts |
 |---|---|---|
-| `hard_1` | Customers with above-average spending | CTE + subquery |
-| `hard_2` | Best-selling product per category | CTE + RANK() window function |
-| `hard_3` | Customers active in 2022, 2023, and 2024 | Correlated subquery |
+| `hard_1` | VIP segment: customers above average lifetime value | `CTE` + scalar subquery |
+| `hard_2` | Category hero: best-selling SKU per product category | `CTE` + `RANK()` window function |
+| `hard_3` | Retained customers active across 2022, 2023, and 2024 | Multi-year correlated subquery |
 
 ## Reward Function
 
 ```
-reward = correctness * 0.7 + keyword_bonus * 0.1 + efficiency_bonus * 0.2
+reward = correctness × 0.7 + keyword_bonus × 0.1 + efficiency_bonus × 0.2
 ```
 
-- **Correctness (0.0-1.0)**: Ratio of matched rows between agent and reference output. Partial credit is awarded for partially correct results.
-- **Keyword bonus (0.1)**: Awarded if the query uses expected SQL constructs (e.g., JOIN, GROUP BY).
-- **Efficiency bonus (0.0-0.2)**: Penalizes unnecessary SELECT *, excessive subqueries, CROSS JOINs.
+| Component | Range | Description |
+|---|---|---|
+| `correctness` | 0.0–1.0 | Fraction of expected rows matched (supports partial credit and column-alias normalization) |
+| `keyword_bonus` | 0.0–0.1 | Query uses expected SQL constructs (JOIN, GROUP BY, etc.) |
+| `efficiency_bonus` | 0.0–0.2 | Penalises `SELECT *`, `CROSS JOIN`, and deeply nested subqueries |
 
-Reward is capped at 1.0.
+**Why this reward design is good for RL:**
+- Non-binary: agents receive signal even on partially correct queries
+- Column aliases are normalised before comparison — an agent using `total` instead of `total_spent` is not punished for a cosmetic difference
+- Efficiency signal discourages degenerate solutions (e.g. scanning all rows)
+- Per-step rewards enable policy gradient methods without sparse returns
 
 ## Baseline Scores
 
-Using the deterministic fallback heuristic (no LLM):
+Deterministic rule-based baseline (no LLM):
 
-| Difficulty | Score |
-|---|---|
-| Easy (3 tasks) | 1.00 / 1.00 / 1.00 |
-| Medium (3 tasks) | 1.00 / 1.00 / 1.00 |
-| Hard (3 tasks) | 1.00 / 1.00 / 1.00 |
+| Task | Score | Steps |
+|---|---|---|
+| easy_1 | 1.00 | 1 |
+| easy_2 | 1.00 | 1 |
+| easy_3 | 1.00 | 1 |
+| medium_1 | 1.00 | 1 |
+| medium_2 | 1.00 | 1 |
+| medium_3 | 1.00 | 1 |
+| hard_1 | 1.00 | 1 |
+| hard_2 | 1.00 | 1 |
+| hard_3 | 1.00 | 1 |
+
+LLM agents (e.g. Qwen2.5-72B) are expected to score 0.7–1.0 on easy, 0.5–0.9 on medium, and 0.2–0.7 on hard tasks — leaving meaningful room for RL improvement.
 
 ## Setup
-
-### Prerequisites
-
-- Python 3.10+
-- Docker (for containerized deployment)
 
 ### Local Development
 
 ```bash
 pip install -r requirements.txt
 
-# Run the server
+# Start the server
 uvicorn server.app:app --host 0.0.0.0 --port 7860
 
-# In a separate terminal, run inference
+# Run inference (separate terminal)
 python inference.py
 ```
 
@@ -128,53 +149,52 @@ docker build -t sql_env .
 docker run -p 7860:7860 \
   -e API_BASE_URL="https://router.huggingface.co/v1" \
   -e MODEL_NAME="Qwen/Qwen2.5-72B-Instruct" \
-  -e HF_TOKEN="your-token" \
+  -e HF_TOKEN="your-hf-token" \
   sql_env
 ```
 
-### Tests
+### Run Tests
 
 ```bash
 python -m pytest test_env.py -v
+# 72 tests: database, graders, partial credit, lifecycle, all 9 tasks, FastAPI endpoints
 ```
-
-72 tests covering: database seeding, task registry, grader accuracy, partial credit, environment lifecycle, all 9 tasks solvable, multi-difficulty sweeps, inference script, FastAPI endpoints, reward consistency.
 
 ## API Endpoints
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Health check (HTTP 200) |
+| `GET` | `/health` | Health check — returns HTTP 200 |
 | `POST` | `/reset` | Start new episode |
 | `POST` | `/step` | Execute SQL action |
-| `GET` | `/state` | Get episode state |
+| `GET` | `/state` | Current episode state |
 | `GET` | `/tasks` | List all tasks by difficulty |
-| `GET` | `/schema` | Get database schema |
+| `GET` | `/schema` | Database schema |
 | `GET` | `/` | Interactive web UI |
 | `WS` | `/ws` | WebSocket endpoint |
 
 ## Environment Variables
 
-| Variable | Description |
-|---|---|
-| `API_BASE_URL` | LLM API endpoint |
-| `MODEL_NAME` | Model identifier |
-| `HF_TOKEN` | Hugging Face / API key |
+| Variable | Default | Description |
+|---|---|---|
+| `API_BASE_URL` | `https://router.huggingface.co/v1` | LLM API endpoint |
+| `MODEL_NAME` | `Qwen/Qwen2.5-72B-Instruct` | Model identifier |
+| `HF_TOKEN` | *(required)* | Hugging Face / API key |
 
 ## Project Structure
 
 ```
 .
-├── inference.py          # Baseline inference script (root, mandatory)
-├── models.py             # Pydantic Action/Observation/State models
-├── client.py             # HTTP EnvClient
-├── openenv.yaml          # OpenEnv manifest
-├── requirements.txt      # Python dependencies
-├── Dockerfile            # HF Spaces compatible container
-├── test_env.py           # 72-test suite
-├── README.md             # This file
+├── inference.py           # Baseline inference script (mandatory, root)
+├── models.py              # Pydantic Action / Observation / State models
+├── client.py              # HTTP EnvClient
+├── openenv.yaml           # OpenEnv manifest
+├── pyproject.toml         # Package metadata and dependencies
+├── requirements.txt       # pip dependencies
+├── Dockerfile             # HF Spaces-compatible container
+├── test_env.py            # 72-test suite
 └── server/
-    ├── app.py            # FastAPI server
-    ├── sql_environment.py # Core Environment (reset/step/state)
-    └── tasks.py          # 9 tasks, graders, SQLite seed data
+    ├── app.py             # FastAPI server (reset / step / state / ws)
+    ├── sql_environment.py # Core environment logic
+    └── tasks.py           # 9 tasks, graders, SQLite seed data
 ```
