@@ -26,7 +26,11 @@ from openai import OpenAI
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+API_KEY = (
+    os.getenv("HF_TOKEN")
+    or os.getenv("OPENAI_API_KEY")
+    or os.getenv("API_KEY")
+)
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
@@ -49,14 +53,16 @@ ALL_TASKS = [
 ]
 
 SYSTEM_PROMPT = textwrap.dedent("""
-You are an expert SQL developer. You are given a database schema and a task.
-Write a single SQL query that solves the task.
+You are a data analyst at an e-commerce company. Business stakeholders
+(marketing, finance, CRM, merchandising) submit ad-hoc data requests and
+you fulfil them by writing SQL queries against the company database.
 
 RULES:
-- Return ONLY the SQL query, no explanation, no markdown code blocks, no comments.
+- Return ONLY the SQL query — no explanation, no markdown fences, no comments.
 - Use standard SQLite syntax.
-- Use column aliases to match expected column names exactly.
+- Use column aliases to match the expected column names exactly as stated in the task.
 - Do NOT use SELECT * — select only the required columns.
+- Aim for the simplest correct query; avoid unnecessary subqueries or CROSS JOINs.
 """).strip()
 
 

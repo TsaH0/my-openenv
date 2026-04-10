@@ -1,6 +1,6 @@
 name: sql_env
 version: "1.0.0"
-description: "SQL Query Learning Environment - an OpenEnv-compatible RL environment where AI agents learn to write correct and efficient SQL queries against a realistic e-commerce database with 3 difficulty tiers (easy/medium/hard), 9 tasks, automated graders, and meaningful reward functions (0.0-1.0)."
+description: "Data Analyst SQL Environment - simulates the real-world workflow of a data analyst fulfilling ad-hoc business requests (from marketing, finance, CRM, and merchandising teams) by writing SQL queries against an e-commerce database. 9 tasks across 3 difficulty tiers (easy/medium/hard) with automated graders and partial-credit rewards (0.0-1.0)."
 
 action: SQLAction
 observation: SQLObservation

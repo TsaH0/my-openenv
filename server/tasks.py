@@ -59,9 +59,15 @@ TABLE order_items:
   unit_price  REAL NOT NULL
 
 SAMPLE DATA HINTS:
-  - ~50 customers, ~30 products across 5 categories
-  - ~200 orders spanning 2022-2024
-  - ~500 order_items linking orders to products
+  - 20 customers across 9 countries
+  - 20 products across 5 categories (Electronics, Clothing, Sports, Home, Accessories, Stationery)
+  - 30 orders spanning 2023-2024, statuses: completed / pending / cancelled
+  - 50 order_items linking orders to products
+
+ROLE CONTEXT:
+  You are a data analyst at an e-commerce company. Business stakeholders
+  (marketing, finance, CRM, merchandising) submit ad-hoc data requests that
+  you fulfil by writing SQL queries against this database.
 """.strip()
 
 
