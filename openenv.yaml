@@ -1,55 +1,7 @@
 name: sql_env
 version: "1.0.0"
-description: >
-  SQL Query Learning Environment - an OpenEnv-compatible RL environment
-  where AI agents learn to write correct and efficient SQL queries against
-  a realistic e-commerce database (customers, products, orders, order_items).
-  Features 3 difficulty tiers (easy/medium/hard) with 3 tasks each,
-  automated graders, and meaningful reward functions (0.0-1.0).
+description: "SQL Query Learning Environment - an OpenEnv-compatible RL environment where AI agents learn to write correct and efficient SQL queries against a realistic e-commerce database with 3 difficulty tiers (easy/medium/hard), 9 tasks, automated graders, and meaningful reward functions (0.0-1.0)."
 
 action: SQLAction
 observation: SQLObservation
-
-tasks:
-  - id: easy_1
-    difficulty: easy
-    description: "Retrieve names and emails of customers from the USA"
-  - id: easy_2
-    difficulty: easy
-    description: "Count total number of completed orders"
-  - id: easy_3
-    difficulty: easy
-    description: "List top 5 most expensive products"
-  - id: medium_1
-    difficulty: medium
-    description: "Calculate total spending per customer (completed orders)"
-  - id: medium_2
-    difficulty: medium
-    description: "Find products that have never been ordered"
-  - id: medium_3
-    difficulty: medium
-    description: "Average order value per month in 2023"
-  - id: hard_1
-    difficulty: hard
-    description: "Customers with above-average total spending"
-  - id: hard_2
-    difficulty: hard
-    description: "Best-selling product per category by quantity"
-  - id: hard_3
-    difficulty: hard
-    description: "Customers active in all three years 2022, 2023, 2024"
-
-container:
-  image: sql_env:latest
-  port: 7860
-
-environment_variables:
-  - API_BASE_URL
-  - MODEL_NAME
-  - HF_TOKEN
-
-constraints:
-  max_steps_per_episode: 20
-  runtime_limit_minutes: 20
-  cpu: 2
-  memory_gb: 8
+state: SQLState

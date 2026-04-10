@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "openenv-sql_env"
+version = "1.0.0"
+description = "SQL Query Learning Environment - an OpenEnv-compatible RL environment where AI agents learn to write correct and efficient SQL queries against a realistic e-commerce database."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    "openenv-core>=0.1.0",
+    "fastapi>=0.110.0",
+    "pydantic>=2.0.0",
+    "uvicorn[standard]>=0.29.0",
+    "requests>=2.31.0",
+    "websockets>=12.0",
+    "httpx>=0.27.0",
+    "openai>=1.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "httpx",
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.yml", "*.md"]

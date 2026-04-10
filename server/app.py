@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 from typing import Any as _Any
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -114,7 +114,10 @@ async def health():
 
 
 @app.post("/reset")
-async def reset(request: ResetRequest, session_id: str = _default_session_id):
+async def reset(
+    request: Optional[ResetRequest] = Body(default=None),
+    session_id: str = _default_session_id,
+):
     """
     Initialize a new episode.
 
@@ -122,10 +125,9 @@ async def reset(request: ResetRequest, session_id: str = _default_session_id):
         SQLObservation as JSON with schema_info and first task description.
     """
     env = _get_or_create_session(session_id)
-    obs: SQLObservation = env.reset(
-        difficulty=request.difficulty,
-        task_id=request.task_id,
-    )
+    difficulty = request.difficulty if request else "easy"
+    task_id = request.task_id if request else None
+    obs: SQLObservation = env.reset(difficulty=difficulty, task_id=task_id)
     return _obs_to_dict(obs)
 
 
@@ -378,6 +380,10 @@ def _web_ui_html() -> str:
 """.strip()
 
 
-if __name__ == "__main__":
+def main():
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
+
+
+if __name__ == "__main__":
+    main()
